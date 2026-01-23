@@ -23,19 +23,19 @@ $$;
 CREATE SCHEMA IF NOT EXISTS s3vl;
 
 -- Create s3vl schema and new return types
-\i sql/types/s3vl_return_types.sql
+\i types/s3vl_return_types.sql
 
 -- Create s3vl schema tables (config and index_registry)
-\i sql/tables/s3vl_schema_tables.sql
+\i tables/s3vl_schema_tables.sql
 
 -- Install s3vl configuration management functions
-\i sql/functions/s3vl_config_functions.sql
+\i functions/s3vl_config_functions.sql
 
 -- Install s3vl index registry management functions
-\i sql/functions/s3vl_index_registry_functions.sql
+\i functions/s3vl_index_registry_functions.sql
 
 -- Install s3vl query functions (AWS API aligned: query_vectors, get_vectors, list_vectors)
-\i sql/functions/s3vl_query_functions.sql
+\i functions/s3vl_query_functions.sql
 
 -- Verify installation
 DO $$

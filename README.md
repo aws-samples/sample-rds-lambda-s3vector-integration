@@ -36,8 +36,7 @@ The sample solution consists of:
 ├── deployment/                     # Infrastructure deployment
 │   └── cloudformation/
 │       ├── template.yaml           # Main CloudFormation template
-│       ├── parameters-example.json # Example parameters file
-│       └── README.md               # Deployment instructions
+│       └── parameters-example.json # Example parameters file
 ├── source/                         # Source code
 │   ├── lambda/                     # Lambda function code
 │   │   ├── src/                    # Lambda source code
@@ -64,7 +63,7 @@ The sample solution consists of:
 
 **⚠️ IMPORTANT**: This sample is designed for learning and testing. Use a dedicated test or development Aurora cluster, not a production environment.
 
-- **Aurora PostgreSQL Cluster**: Aurora PostgreSQL 13.7+ with `aws_lambda` extension support (test/development environment only)
+- **Aurora PostgreSQL Cluster**: Aurora PostgreSQL 16.6+ with `aws_lambda` extension support (test/development environment only)
 - **No Existing Lambda Role**: Aurora cluster should not have an existing Lambda role associated (Aurora supports only one Lambda role per cluster)
 - **AWS CLI**: Configured with appropriate permissions
 - **VPC Configuration**: Aurora cluster deployed in VPC with proper networking (note: an account's default VPC does not have Lambda integration enabled by default - see [Aurora PostgreSQL Lambda integration documentation](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/PostgreSQL-Lambda.html))

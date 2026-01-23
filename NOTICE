@@ -1,0 +1,8 @@
+Sample RDS Lambda S3Vector Integration
+
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+This product includes software developed at Amazon Web Services (https://aws.amazon.com/).
+
+This example demonstrates how to integrate Amazon Aurora PostgreSQL databases with 
+AWS S3 Vector indexes through AWS Lambda functions for educational purposes.

@@ -1,0 +1,46 @@
+{
+  "_comment": "CloudFormation Parameters Template for Sample RDS Lambda S3Vector Integration",
+  "_instructions": [
+    "1. Copy this file to parameters.json",
+    "2. Replace the placeholder values with your actual AWS resource IDs",
+    "3. Use this file with: aws cloudformation create-stack --parameters file://parameters.json"
+  ],
+  
+  "Parameters": [
+    {
+      "ParameterKey": "AuroraClusterArn",
+      "ParameterValue": "arn:aws:rds:us-west-2:123456789012:cluster:your-aurora-cluster-name",
+      "_description": "Full ARN of your Aurora PostgreSQL cluster (find in RDS Console > Databases > Configuration tab)"
+    },
+    {
+      "ParameterKey": "VpcId", 
+      "ParameterValue": "vpc-0123456789abcdef0",
+      "_description": "VPC ID where your Aurora cluster is deployed (find in RDS Console > Connectivity & security tab)"
+    },
+    {
+      "ParameterKey": "SubnetIds",
+      "ParameterValue": "subnet-0123456789abcdef0,subnet-0fedcba9876543210,subnet-0abcdef1234567890",
+      "_description": "Comma-separated subnet IDs used by Aurora cluster (find in RDS Console > Subnet groups)"
+    },
+    {
+      "ParameterKey": "SecurityGroupIds",
+      "ParameterValue": "sg-0123456789abcdef0,sg-0fedcba9876543210", 
+      "_description": "Comma-separated security group IDs for Aurora cluster (find in RDS Console > VPC security groups)"
+    },
+    {
+      "ParameterKey": "ResourcePrefix",
+      "ParameterValue": "s3vl",
+      "_description": "Prefix for naming AWS resources (1-20 chars, lowercase, numbers, hyphens only)"
+    },
+    {
+      "ParameterKey": "LambdaTimeout",
+      "ParameterValue": "10",
+      "_description": "Lambda timeout in seconds (3-900). Use 10-30 for demonstration, 60+ for production"
+    },
+    {
+      "ParameterKey": "LambdaMemorySize", 
+      "ParameterValue": "128",
+      "_description": "Lambda memory in MB (128-10240). Use 128-256 for demonstration, 512+ for production"
+    }
+  ]
+}

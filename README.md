@@ -40,14 +40,12 @@ The sample solution consists of:
 ├── source/                         # Source code
 │   ├── lambda/                     # Lambda function code
 │   │   ├── src/                    # Lambda source code
-│   │   ├── tests/                  # Lambda tests
 │   │   ├── requirements.txt        # Python dependencies
 │   │   └── package.sh              # Packaging script
 │   └── sql/                        # PostgreSQL extension
 │       ├── functions/              # SQL function definitions
 │       ├── tables/                 # Configuration tables
 │       ├── types/                  # Custom data types
-│       ├── examples/               # Usage examples
 │       └── install.sql             # Extension installer
 ├── sample-data/                    # Sample data generator
 │   ├── generate-vectors.py         # Vector data generator

@@ -1,56 +1,60 @@
 # Sample RDS Lambda S3Vector Integration - Data Flow Architecture
 
+The architecture shows a 7-step data flow: (1) Database client sends SQL query to Aurora PostgreSQL, (2) s3vl schema functions process the request, (3) aws_lambda extension invokes Lambda function, (4) Lambda calls S3 Vector API, (5) S3 Vector returns results, (6) Lambda formats response, (7) Results returned to client
+
 ## Complete Data Flow Diagram
 
+<!-- ASCII diagram showing data flow from Database Client through Aurora PostgreSQL, Lambda, to S3 Vectors Service -->
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          Sample RDS Lambda S3Vector Integration                 │
-│                              Data Flow Architecture                             │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                          Sample RDS Lambda S3Vector Integration                │
+│                              Data Flow Architecture                            │
+└────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────┐    1. SQL Query
 │                 │    ──────────────────────────────────────────────────────────┐
 │  Database       │                                                              │
-│  Client         │    SELECT * FROM s3vl.query_vectors(                        │
-│  Application    │        index_name => 'products',                            │
-│                 │        query_vector => ARRAY[0.1, 0.2, 0.3],                │
+│  Client         │    SELECT * FROM s3vl.query_vectors(                         │
+│  Application    │        index_name => 'products',                             │
+│                 │        query_vector => ARRAY[0.1, 0.2, 0.3],                 │
 └─────────────────┘        top_k => 10                                           │
          │                 );                                                    │
          │                                                                       │
          ▼                                                                       │
-┌─────────────────────────────────────────────────────────────────────────────────┤
+┌────────────────────────────────────────────────────────────────────────────────┤
 │                        Amazon Aurora PostgreSQL Cluster                        │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │                           s3vl Schema                                   │   │
 │  │                                                                         │   │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐     │   │
-│  │  │   s3vl.config   │  │  s3vl.indexes   │  │  s3vl Functions     │     │   │
-│  │  │                 │  │                 │  │                     │     │   │
-│  │  │ • lambda_arn    │  │ • index_name    │  │ • query_vectors()   │     │   │
-│  │  │ • aws_region    │  │ • index_arn     │  │ • get_vectors()     │     │   │
-│  │  │                 │  │ • description   │  │ • list_vectors()    │     │   │
-│  │  └─────────────────┘  └─────────────────┘  │ • validate_config() │     │   │
-│  │                                             └─────────────────────┘     │   │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐      │   │
+│  │  │   s3vl.config   │  │  s3vl.indexes   │  │  s3vl Functions     │      │   │
+│  │  │                 │  │                 │  │                     │      │   │
+│  │  │ • lambda_arn    │  │ • index_name    │  │ • query_vectors()   │      │   │
+│  │  │ • aws_region    │  │ • index_arn     │  │ • get_vectors()     │      │   │
+│  │  │                 │  │ • description   │  │ • list_vectors()    │      │   │
+│  │  └─────────────────┘  └─────────────────┘  │ • validate_config() │      │   │
+│  │                                            └─────────────────────┘      │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                          │
-│                                      │ 2. Function Processing                   │
-│                                      │ • Validate parameters                    │
-│                                      │ • Lookup index ARN                       │
-│                                      │ • Retrieve Lambda ARN                    │
-│                                      │ • Construct JSON payload                 │
-│                                      ▼                                          │
+│                                      │                                         │
+│                                      │ 2. Function Processing                  │
+│                                      │ • Validate parameters                   │
+│                                      │ • Lookup index ARN                      │
+│                                      │ • Retrieve Lambda ARN                   │
+│                                      │ • Construct JSON payload                │
+│                                      ▼                                         │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │                    aws_lambda Extension                                 │   │
 │  │                                                                         │   │
 │  │  aws_lambda_invoke(                                                     │   │
 │  │    lambda_arn,                                                          │   │
 │  │    '{"operation": "query_vectors",                                      │   │
-│  │      "index_arn": "arn:aws:s3vectors:...",                             │   │
-│  │      "query_vector": [0.1, 0.2, 0.3],                                  │   │
+│  │      "index_arn": "arn:aws:s3vectors:...",                              │   │
+│  │      "query_vector": [0.1, 0.2, 0.3],                                   │   │
 │  │      "top_k": 10}'                                                      │   │
 │  │  )                                                                      │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────────┘
          │
          │ 3. Lambda Invocation (via IAM Role)
          │ Aurora Lambda Role: rds-s3vl-aurora-lambda-role
@@ -58,20 +62,20 @@
          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              AWS Lambda Function                                │
-│                          rds-s3vl-vector-query                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                        lambda_handler()                                 │   │
-│  │                                                                         │   │
-│  │  1. Parse event payload                                                 │   │
-│  │  2. Validate operation and parameters                                   │   │
-│  │  3. Initialize boto3 S3 Vector client                                   │   │
-│  │  4. Call appropriate S3 Vector API                                      │   │
-│  │  5. Format response for PostgreSQL                                      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                          rds-s3vl-vector-query                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                        lambda_handler()                                 │    │
+│  │                                                                         │    │
+│  │  1. Parse event payload                                                 │    │
+│  │  2. Validate operation and parameters                                   │    │
+│  │  3. Initialize boto3 S3 Vector client                                   │    │
+│  │  4. Call appropriate S3 Vector API                                      │    │
+│  │  5. Format response for PostgreSQL                                      │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
 │                                      │                                          │
-│  Execution Role: rds-s3vl-lambda-execution-role                                │
+│  Execution Role: rds-s3vl-lambda-execution-role                                 │
 │  Permissions:                                                                   │
-│  • s3vectors:QueryVectors, GetVectors, ListVectors                             │
+│  • s3vectors:QueryVectors, GetVectors, ListVectors                              │
 │  • VPC access for Aurora communication                                          │
 │  • CloudWatch logging                                                           │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -81,20 +85,20 @@
          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           Amazon S3 Vectors Service                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                        Vector Index Storage                             │   │
-│  │                                                                         │   │
-│  │  Bucket: your-vector-bucket                                             │   │
-│  │  Index: test-index-5d                                                   │   │
-│  │  • Dimension: 5                                                         │   │
-│  │  • Distance Metric: cosine                                              │   │
-│  │  • Vector Count: 50 (sample data)                                       │   │
-│  │                                                                         │   │
-│  │  Operations:                                                            │   │
-│  │  • QueryVectors (similarity search)                                     │   │
-│  │  • GetVectors (retrieve by ID)                                          │   │
-│  │  • ListVectors (browse index)                                           │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                        Vector Index Storage                             │    │
+│  │                                                                         │    │
+│  │  Bucket: your-vector-bucket                                             │    │
+│  │  Index: test-index-5d                                                   │    │
+│  │  • Dimension: 5                                                         │    │
+│  │  • Distance Metric: cosine                                              │    │
+│  │  • Vector Count: 50 (sample data)                                       │    │
+│  │                                                                         │    │
+│  │  Operations:                                                            │    │
+│  │  • QueryVectors (similarity search)                                     │    │
+│  │  • GetVectors (retrieve by ID)                                          │    │
+│  │  • ListVectors (browse index)                                           │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
 │                                      │                                          │
 │                                      │ 5. Vector Search Results                 │
 │                                      │ {                                        │
@@ -113,8 +117,8 @@
          │   "result": {"vectors": [...]}
          │ }
          ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        Return Path to Aurora PostgreSQL                         │
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                        Return Path to Aurora PostgreSQL                        │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │                    PostgreSQL Result Processing                         │   │
 │  │                                                                         │   │
@@ -123,7 +127,7 @@
 │  │  3. Convert to PostgreSQL table format                                  │   │
 │  │  4. Return result set to client                                         │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────────┘
          │
          │ 7. Final SQL Result Set
          ▼
@@ -135,9 +139,9 @@
 │                 │
 └─────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Security Architecture                              │
-│                                                                                 │
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                              Security Architecture                             │
+│                                                                                │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────────┐     │
 │  │   Aurora IAM    │    │   Lambda IAM    │    │      VPC Security       │     │
 │  │      Role       │    │      Role       │    │                         │     │
@@ -146,7 +150,7 @@
 │  │   permissions   │    │ • VPC access    │    │  • Private subnets      │     │
 │  │                 │    │ • CloudWatch    │    │  • NAT Gateway access   │     │
 │  └─────────────────┘    └─────────────────┘    └─────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Integration Points
@@ -163,7 +167,7 @@
 
 ### 3. Security Boundaries
 - **Role Separation**: Distinct IAM roles for Aurora (invoke Lambda) and Lambda (call S3 Vector)
-- **Network Isolation**: VPC deployment ensures secure communication
+- **Network Isolation**: VPC deployment provides secure communication
 - **Least Privilege**: Each component has minimal required permissions
 
 ### 4. Data Flow Characteristics

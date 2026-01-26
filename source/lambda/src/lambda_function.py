@@ -15,6 +15,47 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
+def validate_s3vector_index_arn(index_arn: Any, parameter_name: str = "index_arn") -> str:
+    """
+    Validate S3 Vector index ARN format and return sanitized ARN
+    
+    Args:
+        index_arn: The ARN to validate
+        parameter_name: Name of the parameter for error messages
+    
+    Returns:
+        str: Validated and sanitized ARN
+    
+    Raises:
+        ValueError: If ARN is invalid
+    """
+    if not index_arn:
+        raise ValueError(f"Missing required parameter: {parameter_name}")
+    
+    if not isinstance(index_arn, str):
+        raise ValueError(f"{parameter_name} must be a string, got {type(index_arn).__name__}")
+    
+    # Strip whitespace and validate non-empty
+    index_arn = index_arn.strip()
+    if not index_arn:
+        raise ValueError(f"{parameter_name} cannot be empty or whitespace")
+    
+    # Basic ARN format validation
+    if not index_arn.startswith('arn:aws:s3vectors:'):
+        raise ValueError(f"{parameter_name} must be a valid S3 Vector index ARN starting with 'arn:aws:s3vectors:'")
+    
+    # Basic ARN structure validation (arn:partition:service:region:account:resource)
+    arn_parts = index_arn.split(':')
+    if len(arn_parts) < 6:
+        raise ValueError(f"{parameter_name} has invalid ARN format - insufficient parts")
+    
+    # Validate reasonable ARN length
+    if len(index_arn) > 2048:  # AWS ARN length limit
+        raise ValueError(f"{parameter_name} exceeds maximum ARN length of 2048 characters")
+    
+    return index_arn
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for Sample-RDS-S3Vector integration operations
@@ -58,7 +99,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        logger.error(f"Request {request_id}: Error: {str(e)}", exc_info=True)
+        logger.warning(f"Request {request_id}: Error: {str(e)}", exc_info=True)
         execution_time_ms = int((time.time() - start_time) * 1000)
         
         return {
@@ -83,6 +124,13 @@ def handle_availability_check(event: Dict[str, Any], request_id: str) -> Dict[st
     This operation is used instead of complex health checks to simplify
     validation and reduce execution time.
     """
+    # Validate that event is a dictionary (basic validation)
+    if not isinstance(event, dict):
+        raise ValueError("Event must be a dictionary")
+    
+    # No additional parameters required for availability check
+    # This is intentionally lightweight for validation purposes
+    
     logger.info(f"Request {request_id}: Availability check - Lambda is reachable")
     return {'status': 'available'}
 
@@ -107,11 +155,53 @@ def handle_query_vectors(event: Dict[str, Any], request_id: str) -> List[Dict[st
     return_metadata = event.get('return_metadata', True)
     metadata_filter = event.get('metadata_filter')  # New optional parameter
     
-    if not index_arn:
-        raise ValueError("Missing required parameter: index_arn")
+    # Validate index_arn
+    index_arn = validate_s3vector_index_arn(index_arn)
     
+    # Validate query_vector
     if not query_vector:
         raise ValueError("Missing required parameter: query_vector")
+    
+    if not isinstance(query_vector, list):
+        raise ValueError("query_vector must be a list of numbers")
+    
+    if len(query_vector) == 0:
+        raise ValueError("query_vector cannot be empty")
+    
+    if len(query_vector) > 10000:  # Reasonable upper limit for vector dimensions
+        raise ValueError("query_vector dimensions cannot exceed 10000")
+    
+    # Validate all vector elements are numeric and finite
+    for i, value in enumerate(query_vector):
+        if not isinstance(value, (int, float)):
+            raise ValueError(f"query_vector[{i}] must be a number, got {type(value).__name__}")
+        
+        # Check for NaN and infinite values
+        if isinstance(value, float):
+            import math
+            if math.isnan(value):
+                raise ValueError(f"query_vector[{i}] cannot be NaN")
+            if math.isinf(value):
+                raise ValueError(f"query_vector[{i}] cannot be infinite")
+    
+    # Validate top_k
+    if not isinstance(top_k, int):
+        raise ValueError("top_k must be an integer")
+    
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
+    
+    if top_k > 1000:  # AWS S3 Vector service limit
+        raise ValueError("top_k cannot exceed 1000")
+    
+    # Validate return_metadata
+    if not isinstance(return_metadata, bool):
+        raise ValueError("return_metadata must be a boolean")
+    
+    # Validate metadata_filter if provided
+    if metadata_filter is not None:
+        if not isinstance(metadata_filter, dict):
+            raise ValueError("metadata_filter must be a dictionary/object")
     
     # Log metadata filter presence
     if metadata_filter is not None:
@@ -163,7 +253,7 @@ def handle_query_vectors(event: Dict[str, Any], request_id: str) -> List[Dict[st
         
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        logger.error(f"Request {request_id}: S3 Vector QueryVectors API error: {error_code} - {str(e)}")
+        logger.warning(f"Request {request_id}: S3 Vector QueryVectors API error: {error_code} - {str(e)}")
         raise Exception(f"S3 Vector QueryVectors failed: {error_code} - {str(e)}")
 
 
@@ -185,14 +275,55 @@ def handle_get_vectors(event: Dict[str, Any], request_id: str) -> List[Dict[str,
     include_vector_data = event.get('include_vector_data', True)
     include_metadata = event.get('include_metadata', True)
     
-    if not index_arn:
-        raise ValueError("Missing required parameter: index_arn")
+    # Validate index_arn
+    index_arn = validate_s3vector_index_arn(index_arn)
     
+    # Validate vector_ids
     if not vector_ids:
         raise ValueError("Missing required parameter: vector_ids")
     
     if not isinstance(vector_ids, list):
         raise ValueError("vector_ids must be a list")
+    
+    if len(vector_ids) == 0:
+        raise ValueError("vector_ids cannot be empty")
+    
+    if len(vector_ids) > 100:  # Reasonable limit for batch operations
+        raise ValueError("vector_ids cannot contain more than 100 IDs")
+    
+    # Validate each vector ID
+    for i, vector_id in enumerate(vector_ids):
+        if not isinstance(vector_id, str):
+            raise ValueError(f"vector_ids[{i}] must be a string, got {type(vector_id).__name__}")
+        
+        if not vector_id.strip():
+            raise ValueError(f"vector_ids[{i}] cannot be empty or whitespace")
+        
+        # Basic sanitization - check for reasonable length
+        if len(vector_id) > 1024:  # Reasonable limit for vector ID length
+            raise ValueError(f"vector_ids[{i}] exceeds maximum length of 1024 characters")
+        
+        # Check for potentially problematic characters (basic sanitization)
+        if any(char in vector_id for char in ['\x00', '\n', '\r', '\t']):
+            raise ValueError(f"vector_ids[{i}] contains invalid control characters")
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_vector_ids = []
+    for vector_id in vector_ids:
+        if vector_id not in seen:
+            seen.add(vector_id)
+            unique_vector_ids.append(vector_id)
+    
+    # Update vector_ids to use deduplicated list
+    vector_ids = unique_vector_ids
+    
+    # Validate boolean parameters
+    if not isinstance(include_vector_data, bool):
+        raise ValueError("include_vector_data must be a boolean")
+    
+    if not isinstance(include_metadata, bool):
+        raise ValueError("include_metadata must be a boolean")
     
     logger.info(f"Request {request_id}: Getting {len(vector_ids)} vectors from index_arn={index_arn}")
     
@@ -258,7 +389,7 @@ def handle_get_vectors(event: Dict[str, Any], request_id: str) -> List[Dict[str,
         
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        logger.error(f"Request {request_id}: S3 Vector GetVectors API error: {error_code} - {str(e)}")
+        logger.warning(f"Request {request_id}: S3 Vector GetVectors API error: {error_code} - {str(e)}")
         raise Exception(f"S3 Vector GetVectors failed: {error_code} - {str(e)}")
 
 
@@ -286,12 +417,34 @@ def handle_list_vectors(event: Dict[str, Any], request_id: str) -> Dict[str, Any
     return_data = event.get('return_data', False)
     return_metadata = event.get('return_metadata', True)
     
-    if not index_arn:
-        raise ValueError("Missing required parameter: index_arn")
+    # Validate index_arn
+    index_arn = validate_s3vector_index_arn(index_arn)
     
     # Validate max_results parameter
-    if not isinstance(max_results, int) or max_results < 1 or max_results > 1000:
-        raise ValueError("max_results must be an integer between 1 and 1000")
+    if not isinstance(max_results, int):
+        raise ValueError("max_results must be an integer")
+    
+    if max_results < 1 or max_results > 1000:
+        raise ValueError("max_results must be between 1 and 1000")
+    
+    # Validate next_token if provided
+    if next_token is not None:
+        if not isinstance(next_token, str):
+            raise ValueError("next_token must be a string")
+        
+        if not next_token.strip():
+            raise ValueError("next_token cannot be empty or whitespace")
+        
+        # Basic length validation for pagination token
+        if len(next_token) > 4096:  # Reasonable limit for pagination tokens
+            raise ValueError("next_token exceeds maximum length of 4096 characters")
+    
+    # Validate boolean parameters
+    if not isinstance(return_data, bool):
+        raise ValueError("return_data must be a boolean")
+    
+    if not isinstance(return_metadata, bool):
+        raise ValueError("return_metadata must be a boolean")
     
     logger.info(f"Request {request_id}: Listing vectors from index_arn={index_arn}, max_results={max_results}, return_data={return_data}")
     
@@ -351,7 +504,7 @@ def handle_list_vectors(event: Dict[str, Any], request_id: str) -> Dict[str, Any
         
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        logger.error(f"Request {request_id}: S3 Vector ListVectors API error: {error_code} - {str(e)}")
+        logger.warning(f"Request {request_id}: S3 Vector ListVectors API error: {error_code} - {str(e)}")
         raise Exception(f"S3 Vector ListVectors failed: {error_code} - {str(e)}")
 
 

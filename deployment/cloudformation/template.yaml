@@ -6,7 +6,7 @@ Parameters:
   AuroraClusterArn:
     Type: String
     Description: |
-      Full ARN of your Aurora cluster for tagging and identification.
+      Full ARN of your Amazon Aurora cluster for tagging and identification.
       
       Format: arn:aws:rds:REGION:ACCOUNT_ID:cluster:CLUSTER_NAME
       How to find: RDS Console > Databases > Select cluster > Configuration tab > Resource ID section
@@ -42,9 +42,45 @@ Parameters:
       Security group IDs for Lambda function. Include your Aurora cluster's security groups plus any additional groups needed.
       
       How to find: RDS Console > Databases > Select cluster > Connectivity & security tab > VPC security groups
-      The Lambda function needs network access to Aurora and S3 Vector service.
       
-      Note: Ensure these security groups allow outbound HTTPS (port 443) for S3 Vector API calls.
+      REQUIRED SECURITY GROUP RULES:
+      
+      Outbound Rules (Lambda needs to make these connections):
+      1. HTTPS (port 443) to 0.0.0.0/0 - Required for S3 Vector API calls
+         - Protocol: TCP, Port: 443, Destination: 0.0.0.0/0
+         - Used for: S3 Vector service API endpoints (QueryVectors, GetVectors, ListVectors)
+      
+      2. PostgreSQL (port 5432) to Aurora cluster security group
+         - Protocol: TCP, Port: 5432, Destination: Aurora cluster security group ID
+         - Used for: Lambda responses back to Aurora PostgreSQL via aws_lambda_invoke
+      
+      Inbound Rules (minimal - none typically required):
+      - No inbound rules required for this Lambda function
+      - Lambda is invoked by Aurora via AWS Lambda service (not network connections)
+      
+      SECURITY CONSIDERATIONS:
+      - Consider using VPC endpoints for S3 Vector service if available to eliminate internet gateway dependency
+      - VPC endpoint would allow private connectivity: com.amazonaws.region.s3vectors
+      - Without VPC endpoint, Lambda requires NAT Gateway or NAT Instance for internet access
+      - Aurora cluster security group should allow inbound PostgreSQL (5432) from Lambda security group
+      
+      Example Security Group Configuration:
+      LambdaSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+          GroupDescription: Security group for RDS Lambda S3Vector integration
+          VpcId: !Ref VpcId
+          SecurityGroupEgress:
+            - IpProtocol: tcp
+              FromPort: 443
+              ToPort: 443
+              CidrIp: 0.0.0.0/0
+              Description: HTTPS for S3 Vector API calls
+            - IpProtocol: tcp
+              FromPort: 5432
+              ToPort: 5432
+              SourceSecurityGroupId: !Ref AuroraSecurityGroup
+              Description: PostgreSQL to Aurora cluster
 
   # === RESOURCE NAMING ===
   ResourcePrefix:
@@ -97,9 +133,22 @@ Parameters:
 
 
 Resources:
-  # S3 Vector Bucket with generated name (max 63 chars)
-  # Format: {prefix}-{stack-id-suffix} where stack-id-suffix is the UUID from the stack ID
-  # Stack ID format: arn:aws:cloudformation:region:account:stack/stack-name/uuid
+  # Dead Letter Queue for Lambda function
+  LambdaDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ResourcePrefix}-lambda-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days (maximum retention)
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: AuroraClusterArn
+          Value: !Ref AuroraClusterArn
+        - Key: Component
+          Value: Sample-RDS-Lambda-S3Vector-Integration
+
+  # S3 Vector Bucket with auto-generated name
+  # CloudFormation generates unique names: StackName-LogicalID-RandomString (e.g., MyStack-S3VectorBucket-abcdefghijk1)
+  # Actual bucket name available in stack outputs after deployment.
   S3VectorBucket:
     Type: AWS::S3Vectors::VectorBucket
 
@@ -114,11 +163,41 @@ Resources:
       DataType: float32
       Dimension: 5
       DistanceMetric: cosine
+  # Lambda Execution Policy
+  LambdaExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: 'Policy for Lambda function to access S3 Vector services and CloudWatch logs'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3vectors:QueryVectors
+              - s3vectors:GetVectors
+              - s3vectors:ListIndexes
+              - s3vectors:GetIndex
+              - s3vectors:ListVectors
+            Resource: !GetAtt S3VectorIndex.IndexArn
+          - Effect: Allow
+            Action:
+              - s3vectors:ListVectorIndexes
+            Resource: !GetAtt S3VectorBucket.VectorBucketArn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*'
+          - Effect: Allow
+            Action:
+              - sqs:SendMessage
+            Resource: !GetAtt LambdaDeadLetterQueue.Arn
+
   # Lambda Execution Role
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ResourcePrefix}-lambda-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -128,29 +207,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-      Policies:
-        - PolicyName: S3VectorIndexAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3vectors:QueryVectors
-                  - s3vectors:GetVectors
-                  - s3vectors:ListIndexes
-                  - s3vectors:GetIndex
-                  - s3vectors:ListVectors
-                Resource: !GetAtt S3VectorIndex.IndexArn
-              - Effect: Allow
-                Action:
-                  - s3vectors:ListVectorIndexes
-                Resource: !GetAtt S3VectorBucket.VectorBucketArn
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*'
+        - !Ref LambdaExecutionPolicy
       Tags:
         - Key: IndexArn
           Value: !GetAtt S3VectorIndex.IndexArn
@@ -159,11 +216,23 @@ Resources:
         - Key: Component
           Value: Sample-RDS-Lambda-S3Vector-Integration
 
+  # Aurora Lambda Invocation Policy
+  AuroraLambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: 'Policy for Aurora cluster to invoke Lambda functions'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource: !GetAtt VectorQueryLambda.Arn
+
   # Aurora Cluster Role for Lambda Invocation
   AuroraLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ResourcePrefix}-aurora-lambda-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -171,15 +240,8 @@ Resources:
             Principal:
               Service: rds.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: LambdaInvokeAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - lambda:InvokeFunction
-                Resource: !GetAtt VectorQueryLambda.Arn
+      ManagedPolicyArns:
+        - !Ref AuroraLambdaPolicy
       Tags:
         - Key: IndexArn
           Value: !GetAtt S3VectorIndex.IndexArn
@@ -198,6 +260,9 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: !Ref LambdaTimeout
       MemorySize: !Ref LambdaMemorySize
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
       Code:
         ZipFile: |
           import json
@@ -276,11 +341,17 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-LambdaName'
 
+  LambdaExecutionRoleArn:
+    Description: 'ARN of the Aurora Lambda execution role'
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AuroraLambdaExecutionRoleArn'
+
   AuroraLambdaRoleArn:
     Description: 'ARN of the Aurora Lambda execution role'
     Value: !GetAtt AuroraLambdaRole.Arn
     Export:
-      Name: !Sub '${AWS::StackName}-AuroraRoleArn'
+      Name: !Sub '${AWS::StackName}-AuroraLambdaRoleArn'
 
   AuroraClusterIdentifier:
     Description: 'Aurora cluster identifier extracted from ARN'
@@ -289,25 +360,19 @@ Outputs:
       Name: !Sub '${AWS::StackName}-ClusterIdentifier'
 
   S3VectorBucketName:
-    Description: 'S3 Vector bucket name created for this deployment'
+    Description: 'S3 Vectors bucket name created for this deployment'
     Value: !Select [1, !Split ['/', !GetAtt S3VectorBucket.VectorBucketArn]]
     Export:
       Name: !Sub '${AWS::StackName}-BucketName'
 
   S3VectorBucketArn:
-    Description: 'S3 Vector bucket ARN'
+    Description: 'S3 Vectors bucket ARN'
     Value: !GetAtt S3VectorBucket.VectorBucketArn
     Export:
       Name: !Sub '${AWS::StackName}-BucketArn'
 
-  S3VectorIndexName:
-    Description: 'S3 Vector index name created for this deployment'
-    Value: !Select [1, !Split ['/', !GetAtt S3VectorIndex.IndexArn]]
-    Export:
-      Name: !Sub '${AWS::StackName}-IndexName'
-
   S3VectorIndexArn:
-    Description: 'S3 Vector index ARN created for this deployment'
+    Description: 'Vector index ARN created for this deployment'
     Value: !GetAtt S3VectorIndex.IndexArn
     Export:
       Name: !Sub '${AWS::StackName}-IndexArn'
@@ -323,3 +388,15 @@ Outputs:
     Value: !Ref AuroraClusterArn
     Export:
       Name: !Sub '${AWS::StackName}-ClusterArn'
+
+  DeadLetterQueueArn:
+    Description: 'ARN of the Dead Letter Queue for failed Lambda invocations'
+    Value: !GetAtt LambdaDeadLetterQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DLQArn'
+
+  DeadLetterQueueUrl:
+    Description: 'URL of the Dead Letter Queue for monitoring failed invocations'
+    Value: !Ref LambdaDeadLetterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DLQUrl'

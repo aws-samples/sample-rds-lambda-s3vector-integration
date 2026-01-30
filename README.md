@@ -1,4 +1,4 @@
-# Sample Amazon Aurora Postgres Lambda S3 Vectors Integration
+# Query Billion-Scale Vectors with SQL: Integrating Amazon S3 Vectors and Aurora PostgreSQL
 
 ## Overview
 

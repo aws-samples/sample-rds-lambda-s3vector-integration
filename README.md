@@ -92,7 +92,6 @@ cp parameters-example.json parameters.json
 # - AuroraClusterArn: Full Amazon Resource Name (ARN) of your Aurora cluster (find in RDS Console > Configuration tab)
 # - VpcId: VPC ID where Aurora cluster is deployed (find in RDS Console > Connectivity & security tab)
 # - SubnetIds: Comma-separated subnet IDs used by Aurora cluster (find in RDS Console > Subnet groups)
-# - SecurityGroupIds: Comma-separated security group IDs for Aurora cluster (find in RDS Console > VPC security groups)
 # - ResourcePrefix: Prefix for naming resources (default: s3vl)
 # - LambdaTimeout: Lambda timeout in seconds (default: 10 for demonstration)
 # - LambdaMemorySize: Lambda memory in MB (default: 128 for demonstration)
@@ -129,7 +128,6 @@ aws cloudformation describe-stacks \
    - **AuroraClusterArn**: Full ARN of your Aurora cluster (find in RDS Console → Databases → Configuration tab)
    - **VpcId**: VPC ID where Aurora cluster is deployed (find in RDS Console → Connectivity & security tab)
    - **SubnetIds**: Select 2-3 subnets used by Aurora cluster (same AZs as Aurora)
-   - **SecurityGroupIds**: Select security groups used by Aurora cluster
    - **ResourcePrefix**: Leave as `s3vl` or customize (1-20 chars, lowercase, numbers, hyphens)
    - **LambdaTimeout**: Leave as `10` seconds for demonstration
    - **LambdaMemorySize**: Leave as `128` MB for demonstration

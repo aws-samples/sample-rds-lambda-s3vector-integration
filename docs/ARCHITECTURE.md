@@ -76,7 +76,7 @@ The architecture shows a 7-step data flow: (1) Database client sends SQL query t
 │  Execution Role: rds-s3vl-lambda-execution-role                                 │
 │  Permissions:                                                                   │
 │  • s3vectors:QueryVectors, GetVectors, ListVectors                              │
-│  • VPC access for Aurora communication                                          │
+│  • VPC access (egress TCP 443 for S3 Vectors API)                               │
 │  • CloudWatch logging                                                           │
 └─────────────────────────────────────────────────────────────────────────────────┘
          │
@@ -146,9 +146,10 @@ The architecture shows a 7-step data flow: (1) Database client sends SQL query t
 │  │   Aurora IAM    │    │   Lambda IAM    │    │      VPC Security       │     │
 │  │      Role       │    │      Role       │    │                         │     │
 │  │                 │    │                 │    │  • Same VPC deployment  │     │
-│  │ • Lambda invoke │    │ • S3 Vector API │    │  • Security groups      │     │
-│  │   permissions   │    │ • VPC access    │    │  • Private subnets      │     │
-│  │                 │    │ • CloudWatch    │    │  • NAT Gateway access   │     │
+│  │ • Lambda invoke │    │ • S3 Vector API │    │  • Dedicated Lambda SG  │     │
+│  │   permissions   │    │ • CloudWatch    │    │    (egress 443 only)    │     │
+│  │                 │    │   logging       │    │  • Private subnets      │     │
+│  │                 │    │                 │    │  • NAT Gateway access   │     │
 │  └─────────────────┘    └─────────────────┘    └─────────────────────────┘     │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -167,8 +168,8 @@ The architecture shows a 7-step data flow: (1) Database client sends SQL query t
 
 ### 3. Security Boundaries
 - **Role Separation**: Distinct IAM roles for Aurora (invoke Lambda) and Lambda (call S3 Vector)
-- **Network Isolation**: VPC deployment provides secure communication
-- **Least Privilege**: Each component has minimal required permissions
+- **Network Isolation**: Lambda runs in a dedicated security group allowing only outbound HTTPS (port 443) for S3 Vectors API access. No inbound rules — Aurora invokes Lambda via the AWS service API, not over the VPC network.
+- **Least Privilege**: Each component has minimal required permissions at both the IAM and network layers
 
 ### 4. Data Flow Characteristics
 - **Synchronous**: SQL queries wait for complete S3 Vector results

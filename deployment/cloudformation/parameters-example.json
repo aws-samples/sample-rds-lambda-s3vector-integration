@@ -23,11 +23,6 @@
       "_description": "Comma-separated subnet IDs used by Aurora cluster (find in RDS Console > Subnet groups)"
     },
     {
-      "ParameterKey": "SecurityGroupIds",
-      "ParameterValue": "sg-0123456789abcdef0,sg-0fedcba9876543210", 
-      "_description": "Comma-separated security group IDs for Aurora cluster (find in RDS Console > VPC security groups)"
-    },
-    {
       "ParameterKey": "ResourcePrefix",
       "ParameterValue": "s3vl",
       "_description": "Prefix for naming AWS resources (1-20 chars, lowercase, numbers, hyphens only)"

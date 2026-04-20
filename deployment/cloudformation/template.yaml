@@ -36,52 +36,6 @@ Parameters:
       Or: RDS Console > Subnet groups > Select your cluster's subnet group
       Select 2-3 subnets in different Availability Zones for high availability.
 
-  SecurityGroupIds:
-    Type: List<AWS::EC2::SecurityGroup::Id>
-    Description: |
-      Security group IDs for Lambda function. Include your Aurora cluster's security groups plus any additional groups needed.
-      
-      How to find: RDS Console > Databases > Select cluster > Connectivity & security tab > VPC security groups
-      
-      REQUIRED SECURITY GROUP RULES:
-      
-      Outbound Rules (Lambda needs to make these connections):
-      1. HTTPS (port 443) to 0.0.0.0/0 - Required for S3 Vector API calls
-         - Protocol: TCP, Port: 443, Destination: 0.0.0.0/0
-         - Used for: S3 Vector service API endpoints (QueryVectors, GetVectors, ListVectors)
-      
-      2. PostgreSQL (port 5432) to Aurora cluster security group
-         - Protocol: TCP, Port: 5432, Destination: Aurora cluster security group ID
-         - Used for: Lambda responses back to Aurora PostgreSQL via aws_lambda_invoke
-      
-      Inbound Rules (minimal - none typically required):
-      - No inbound rules required for this Lambda function
-      - Lambda is invoked by Aurora via AWS Lambda service (not network connections)
-      
-      SECURITY CONSIDERATIONS:
-      - Consider using VPC endpoints for S3 Vector service if available to eliminate internet gateway dependency
-      - VPC endpoint would allow private connectivity: com.amazonaws.region.s3vectors
-      - Without VPC endpoint, Lambda requires NAT Gateway or NAT Instance for internet access
-      - Aurora cluster security group should allow inbound PostgreSQL (5432) from Lambda security group
-      
-      Example Security Group Configuration:
-      LambdaSecurityGroup:
-        Type: AWS::EC2::SecurityGroup
-        Properties:
-          GroupDescription: Security group for RDS Lambda S3Vector integration
-          VpcId: !Ref VpcId
-          SecurityGroupEgress:
-            - IpProtocol: tcp
-              FromPort: 443
-              ToPort: 443
-              CidrIp: 0.0.0.0/0
-              Description: HTTPS for S3 Vector API calls
-            - IpProtocol: tcp
-              FromPort: 5432
-              ToPort: 5432
-              SourceSecurityGroupId: !Ref AuroraSecurityGroup
-              Description: PostgreSQL to Aurora cluster
-
   # === RESOURCE NAMING ===
   ResourcePrefix:
     Type: String
@@ -133,6 +87,24 @@ Parameters:
 
 
 Resources:
+  # Dedicated Security Group for Lambda function (least-privilege network access)
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ResourcePrefix} - Lambda function egress-only SG'
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to S3 Vectors API (via NAT Gateway or VPC endpoint)
+      Tags:
+        - Key: AuroraClusterArn
+          Value: !Ref AuroraClusterArn
+        - Key: Component
+          Value: Sample-RDS-Lambda-S3Vector-Integration
+
   # Dead Letter Queue for Lambda function
   LambdaDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -288,7 +260,8 @@ Resources:
                   })
               }
       VpcConfig:
-        SecurityGroupIds: !Ref SecurityGroupIds
+        SecurityGroupIds:
+          - !GetAtt LambdaSecurityGroup.GroupId
         SubnetIds: !Ref SubnetIds
       Tags:
         - Key: IndexArn
@@ -400,3 +373,9 @@ Outputs:
     Value: !Ref LambdaDeadLetterQueue
     Export:
       Name: !Sub '${AWS::StackName}-DLQUrl'
+
+  LambdaSecurityGroupId:
+    Description: 'Security group ID created for the Lambda function (egress-only, port 443)'
+    Value: !GetAtt LambdaSecurityGroup.GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaSecurityGroupId'
